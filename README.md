@@ -46,4 +46,4 @@ Follow these steps to set up and run the script:
      ```
 ## Contact & Customization
 
-Want to tweak this script for your own needs or extract additional data not currently included? I'd be happy to help! Reach out to me at qring99@gmail.com (mailto:qring99@gmail.com) for custom modifications tailored to your expectationsâwhether it's adding new features, adjusting the output, or scraping different stats. Let's make it work for
+Want to tweak this script for your own needs or extract additional data not currently included? I'd be happy to help! Reach out to me at qring99@gmail.com (mailto:qring99@gmail.com) for custom modifications tailored to your expectations---whether it's adding new features, adjusting the output, or scraping different stats. Let's make it work for
