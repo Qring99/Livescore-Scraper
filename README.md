@@ -1,2 +1,44 @@
 # Livescore_Scraper
 A Node.js command-line tool to scrape football (soccer) fixtures from LiveScore. This script fetches match data, including head-to-head stats, home and away team last matches, and upcoming fixtures for a user-specified date or tomorrow. It saves the scraped data to a Fixtures.json file and logs all output to output.txt for easy reference. Features include interactive date input (YY-MM-DD format), colorized terminal output, and robust error handling. Ideal for football enthusiasts, developers, or anyone interested in match data analysis.
+
+
+## Installation Guideline
+
+Follow these steps to set up and run the script:
+
+1. **Install Node.js and npm**  
+   - Download and install [Node.js](https://nodejs.org/) (v14 or higher recommended). npm comes bundled with Node.js.
+   - Verify installation:
+     ```bash
+     node -v
+     npm -v
+     ```
+
+2. **Clone the Repository**  
+   - Clone this repo to your local machine:
+     ```bash
+     git clone https://github.com/[YourUsername]/Livescore_Scraper.git
+     ```
+   - Navigate into the directory:
+     ```bash
+     cd Livescore_Scraper
+     ```
+
+3. **Install Dependencies**  
+   - Run the following command to install required packages:
+     ```bash
+     npm install axios chalk@4.1.2 figlet
+     ```
+   - This installs `axios`, `chalk` (v4.1.2), and `figlet`, and updates `package.json`.
+
+4. **Verify Setup**  
+   - Ensure all dependencies are installed by checking the `node_modules` folder or running:
+     ```bash
+     npm list --depth=0
+     ```
+
+## Usage
+
+Run the script:
+```bash
+npm start
