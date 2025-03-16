@@ -7,7 +7,15 @@ A Node.js command-line tool to scrape football (soccer) fixtures from LiveScore.
 Follow these steps to set up and run the script:
 
 1. **Install Node.js and npm**  
-   - Download and install [Node.js](https://nodejs.org/) (v14 or higher recommended). npm comes bundled with Node.js.
+   - **Option 1**: Download and install [Node.js](https://nodejs.org/) (v14 or higher recommended). npm comes bundled with Node.js.  
+   - **Option 2**: Install via package manager (e.g., on Ubuntu/Debian):
+     ```bash
+     sudo apt update && sudo apt install nodejs npm
+     ```
+     - For macOS with Homebrew:
+       ```bash
+       brew install node
+       ```
    - Verify installation:
      ```bash
      node -v
