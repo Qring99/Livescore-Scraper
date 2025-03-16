@@ -44,5 +44,6 @@ Follow these steps to set up and run the script:
      ```bash
      npm list --depth=0
      ```
-Contact & Customization
-Want to tweak this script for your own needs or extract additional data not currently included? Iâd be happy to help! Reach out to me at qring99@gmail.com (mailto:qring99@gmail.com) for custom modifications tailored to your expectationsâwhether itâs adding new features, adjusting the output, or scraping different stats. Letâs make it work for
+## Contact & Customization
+
+Want to tweak this script for your own needs or extract additional data not currently included? I'd be happy to help! Reach out to me at qring99@gmail.com (mailto:qring99@gmail.com) for custom modifications tailored to your expectationsâwhether it's adding new features, adjusting the output, or scraping different stats. Let's make it work for
