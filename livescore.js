@@ -1,5 +1,6 @@
 const Apify = require('apify');
-Apify.main(async () => {
+
+(async () => {
 const axios = require('axios');
 const fs = require('fs').promises;
 const chalk = require('chalk'); // Using v4.1.2
