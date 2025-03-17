@@ -1,3 +1,5 @@
+const Apify = require('apify');
+Apify.main(async () => {
 const axios = require('axios');
 const fs = require('fs').promises;
 const chalk = require('chalk'); // Using v4.1.2
@@ -111,8 +113,7 @@ axios.get(url)
 
     const saveFixturesData = async () => {
         try {
-            const Apify = require('apify');
-await Apify.setValue('Fixtures.json', fixturesData);
+            await Apify.setValue('Fixtures', fixturesData);
             console.log(chalk.magenta('Fixtures.json updated'));
         } catch (error) {
             console.error(chalk.red('Error saving Fixtures.json: ') + error.message);
@@ -263,6 +264,7 @@ await Apify.setValue('Fixtures.json', fixturesData);
             await processUrl(urlIndex + 1);
         }
     };
+})
 
     processUrl(0);
 })
