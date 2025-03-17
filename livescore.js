@@ -1,12 +1,14 @@
 const axios = require('axios');
-const Apify = require('apify'); // Apify SDK
+const { setValue, openDataset } = require('apify'); // Import specific Apify methods
 const chalk = require('chalk'); // Using v4.1.2
 const figlet = require('figlet');
+
+// Removed fs and fsSync since Apify handles storage
 
 // Store the original console.log
 const originalConsoleLog = console.log;
 
-// Override console.log to write to terminal and collect logs for Apify dataset
+// Override console.log to collect logs for Apify dataset (no file stream)
 const logs = []; // Array to store log lines
 console.log = function (...args) {
     originalConsoleLog.apply(console, args);
@@ -18,7 +20,7 @@ console.log = function (...args) {
         return arg;
     }).join(' ');
 
-    logs.push(plainText);
+    logs.push(plainText); // Collect logs in memory
 };
 
 function getTodayDate() {
@@ -57,209 +59,216 @@ const fixturesData = {
     "matches": []
 };
 
-// Top-level async execution (no Apify.main)
-(async () => {
-    console.log(chalk.white.bold(figlet.textSync('Football Fixtures Scraper by Qring', { font: 'Standard' })));
-    console.log(chalk.white.bold('=== FOOTBALL FIXTURES SCRAPER ==='));
+// Display the large script name without background, followed by the text line
+console.log(chalk.white.bold(figlet.textSync('Football Fixtures Scraper by Qring', { font: 'Standard' })));
+console.log(chalk.white.bold('=== FOOTBALL FIXTURES SCRAPER ==='));
 
-    try {
-        const response = await axios.get(url);
-        const data = response.data;
+axios.get(url)
+.then(response => {
+    const data = response.data;
 
-        if (!data?.Stages?.length) {
-            console.log(chalk.red('No stages found in initial response'));
-            return;
-        }
-
-        data.Stages.forEach(stage => {
-            const cnmT = stage.CnmT || "unknown";
-            const scd = stage.Scd || "unknown";
-
-            if (!stage.Events?.length) return;
-
-            stage.Events.forEach(event => {
-                const t1Name = event.T1?.[0]?.Nm || "unknown";
-                const t2Name = event.T2?.[0]?.Nm || "unknown";
-
-                if (event.Pids) {
-                    Object.keys(event.Pids).forEach(key => {
-                        if (key === "8") {
-                            const pidsValue = event.Pids[key] || "unknown";
-                            const newUrl = `https://www.livescore.com/_next/data/rBZqXyzFUTFIHBhe08WFB/en/football/${cnmT}/${scd}/${t1Name}-vs-${t2Name}/${pidsValue}/h2h.json`;
-                            urlCount++;
-                            allUrls.push({ url: newUrl, team1: t1Name, team2: t2Name });
-                        }
-                    });
-                }
-            });
-        });
-
-        console.log(chalk.magenta('Total Matches Found: ') + urlCount);
-        fixturesData.total_matches_tomorrow = urlCount;
-
-        if (!allUrls.length) {
-            console.log(chalk.red('No Matches Found'));
-            return;
-        }
-
-        const saveFixturesData = async () => {
-            try {
-                await Apify.setValue('FIXTURES', fixturesData, { contentType: 'application/json' });
-                console.log(chalk.magenta('Fixtures data saved to Apify store'));
-            } catch (error) {
-                console.error(chalk.red('Error saving Fixtures data to Apify: ') + error.message);
-            }
-        };
-
-        const processUrl = async (urlIndex) => {
-            if (urlIndex >= allUrls.length) {
-                console.log(chalk.magenta('All Fixtures processed'));
-                await saveFixturesData();
-                const dataset = await Apify.openDataset('OUTPUT');
-                await dataset.pushData(logs.map(line => ({ log: line })));
-                console.log(chalk.magenta('Output logs saved to Apify dataset'));
-                return;
-            }
-
-            const { url: currentUrl, team1, team2 } = allUrls[urlIndex];
-            console.log(chalk.blue(`\nProcessing Fixtures ${urlIndex + 1}: `) + `${team1} vs ${team2}`);
-
-            try {
-                const response = await axios.get(currentUrl);
-                const h2hData = response.data;
-
-                const matchData = {};
-                let hasData = false;
-
-                const metaParams = h2hData?.pageProps?.layoutContext?.metaParams;
-                if (metaParams) {
-                    const team1 = metaParams.team1 || "unknown";
-                    const team2 = metaParams.team2 || "unknown";
-                    matchData.teams = `${team1} vs ${team2}`;
-                    console.log(chalk.cyan(`"${team1}" vs "${team2}"`));
-                } else {
-                    matchData.teams = "unknown vs unknown";
-                    console.log(chalk.red('metaParams not found'));
-                }
-
-                const headToHead = h2hData?.pageProps?.initialEventData?.event?.headToHead?.h2h;
-                if (headToHead?.length) {
-                    matchData.h2h = [];
-                    let h2hCounter = 1;
-                    headToHead.forEach(h2hGroup => {
-                        if (h2hGroup.events?.length) {
-                            hasData = true;
-                            h2hGroup.events.forEach(event => {
-                                const stageName = event.stage?.stageName || "unknown";
-                                const homeTeam = event.homeName || "unknown";
-                                const awayTeam = event.awayName || "unknown";
-                                const homeScore = event.homeScore || "0";
-                                const awayScore = event.awayScore || "0";
-                                const matchDate = formatMatchDate(event.startDateTimeString);
-
-                                console.log(chalk.white.bold(`H2H ${h2hCounter}:`));
-                                console.log(chalk.green(`Stage Name: ${stageName}`));
-                                console.log(chalk.yellow(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`));
-
-                                matchData.h2h.push({
-                                    "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
-                                    "Stage Name": stageName,
-                                    "date": matchDate
-                                });
-                                h2hCounter++;
-                            });
-                        }
-                    });
-                } else {
-                    console.log(chalk.red('No H2H data found'));
-                }
-
-                const homeData = h2hData?.pageProps?.initialEventData?.event?.headToHead?.home;
-                if (homeData?.length) {
-                    matchData["Home last matches"] = [];
-                    console.log(chalk.blue('\nHome last matches:'));
-                    let hlmCounter = 1;
-                    homeData.forEach(homeGroup => {
-                        if (homeGroup.events?.length) {
-                            homeGroup.events.forEach(event => {
-                                const stageName = event.stage?.stageName || "unknown";
-                                const homeTeam = event.homeName || "unknown";
-                                const awayTeam = event.awayName || "unknown";
-                                const homeScore = event.homeScore || "0";
-                                const awayScore = event.awayScore || "0";
-                                const matchDate = formatMatchDate(event.startDateTimeString);
-
-                                console.log(chalk.white.bold(`HLM ${hlmCounter}:`));
-                                console.log(chalk.green(`Stage Name: ${stageName}`));
-                                console.log(chalk.yellow(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`));
-
-                                matchData["Home last matches"].push({
-                                    "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
-                                    "Stage Name": stageName,
-                                    "date": matchDate
-                                });
-                                hlmCounter++;
-                            });
-                            hasData = true;
-                        }
-                    });
-                } else {
-                    console.log(chalk.red('No Home last matches found'));
-                }
-
-                const awayData = h2hData?.pageProps?.initialEventData?.event?.headToHead?.away;
-                if (awayData?.length) {
-                    matchData["Away last matches"] = [];
-                    console.log(chalk.blue('\nAway last matches:'));
-                    let almCounter = 1;
-                    awayData.forEach(awayGroup => {
-                        if (awayGroup.events?.length) {
-                            homeGroup.events.forEach(event => {
-                                const stageName = event.stage?.stageName || "unknown";
-                                const homeTeam = event.homeName || "unknown";
-                                const awayTeam = event.awayName || "unknown";
-                                const homeScore = event.homeScore || "0";
-                                const awayScore = event.awayScore || "0";
-                                const matchDate = formatMatchDate(event.startDateTimeString);
-
-                                console.log(chalk.white.bold(`ALM ${almCounter}:`));
-                                console.log(chalk.green(`Stage Name: ${stageName}`));
-                                console.log(chalk.yellow(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`));
-
-                                matchData["Away last matches"].push({
-                                    "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
-                                    "Stage Name": stageName,
-                                    "date": matchDate
-                                });
-                                almCounter++;
-                            });
-                            hasData = true;
-                        }
-                    });
-                } else {
-                    console.log(chalk.red('No Away last matches found'));
-                }
-
-                if (hasData) {
-                    fixturesData.matches.push(matchData);
-                    await saveFixturesData();
-                } else {
-                    console.log(chalk.red('No H2H, Home, or Away data found for this URL'));
-                }
-
-                await processUrl(urlIndex + 1);
-            } catch (error) {
-                console.log(chalk.red(`Skipping URL ${urlIndex + 1} due to error: ${error.message}`));
-                await saveFixturesData();
-                await processUrl(urlIndex + 1);
-            }
-        };
-
-        await processUrl(0);
-    } catch (error) {
-        console.error(chalk.red("Error in first API call: ") + error.message);
-        await Apify.setValue('FIXTURES', fixturesData, { contentType: 'application/json' });
-        const dataset = await Apify.openDataset('OUTPUT');
-        await dataset.pushData(logs.map(line => ({ log: line })));
+    if (!data?.Stages?.length) {
+        console.log(chalk.red('No stages found in initial response'));
+        return;
     }
-})();
+
+    data.Stages.forEach(stage => {
+        const cnmT = stage.CnmT || "unknown";
+        const scd = stage.Scd || "unknown";
+
+        if (!stage.Events?.length) return;
+
+        stage.Events.forEach(event => {
+            const t1Name = event.T1?.[0]?.Nm || "unknown";
+            const t2Name = event.T2?.[0]?.Nm || "unknown";
+
+            if (event.Pids) {
+                Object.keys(event.Pids).forEach(key => {
+                    if (key === "8") {
+                        const pidsValue = event.Pids[key] || "unknown";
+                        const newUrl = `https://www.livescore.com/_next/data/rBZqXyzFUTFIHBhe08WFB/en/football/${cnmT}/${scd}/${t1Name}-vs-${t2Name}/${pidsValue}/h2h.json`;
+                        // console.log(chalk.blue('URL: ') + newUrl); // Commented out as per your script
+                        urlCount++;
+                        allUrls.push({ url: newUrl, team1: t1Name, team2: t2Name });
+                    }
+                });
+            }
+        });
+    });
+
+    console.log(chalk.magenta('Total Matches Found: ') + urlCount);
+    fixturesData.total_matches_tomorrow = urlCount;
+
+    if (!allUrls.length) {
+        console.log(chalk.red('No Matches Found'));
+        return;
+    }
+
+    const saveFixturesData = async () => {
+        try {
+            // Save to Apify key-value store instead of local file
+            await setValue('FIXTURES', fixturesData, { contentType: 'application/json' });
+            console.log(chalk.magenta('Fixtures data saved to Apify store'));
+        } catch (error) {
+            console.error(chalk.red('Error saving Fixtures data to Apify: ') + error.message);
+        }
+    };
+
+    const processUrl = async (urlIndex) => {
+        if (urlIndex >= allUrls.length) {
+            console.log(chalk.magenta('All Fixtures processed'));
+            await saveFixturesData(); // Final save
+            // Save logs to Apify dataset
+            const dataset = await openDataset('OUTPUT');
+            await dataset.pushData(logs.map(line => ({ log: line })));
+            console.log(chalk.magenta('Output logs saved to Apify dataset'));
+            return;
+        }
+
+        const { url: currentUrl, team1, team2 } = allUrls[urlIndex];
+        console.log(chalk.blue(`\nProcessing Fixtures ${urlIndex + 1}: `) + `${team1} vs ${team2}`);
+
+        try {
+            const response = await axios.get(currentUrl);
+            const h2hData = response.data;
+
+            const matchData = {};
+            let hasData = false;
+
+            const metaParams = h2hData?.pageProps?.layoutContext?.metaParams;
+            if (metaParams) {
+                const team1 = metaParams.team1 || "unknown";
+                const team2 = metaParams.team2 || "unknown";
+                matchData.teams = `${team1} vs ${team2}`;
+                console.log(chalk.cyan(`"${team1}" vs "${team2}"`));
+            } else {
+                matchData.teams = "unknown vs unknown";
+                console.log(chalk.red('metaParams not found'));
+            }
+
+            // Process head-to-head matches (h2h arrays)
+            const headToHead = h2hData?.pageProps?.initialEventData?.event?.headToHead?.h2h;
+            if (headToHead?.length) {
+                matchData.h2h = [];
+                let h2hCounter = 1;
+                headToHead.forEach(h2hGroup => {
+                    if (h2hGroup.events?.length) {
+                        hasData = true;
+                        h2hGroup.events.forEach(event => {
+                            const stageName = event.stage?.stageName || "unknown";
+                            const homeTeam = event.homeName || "unknown";
+                            const awayTeam = event.awayName || "unknown";
+                            const homeScore = event.homeScore || "0";
+                            const awayScore = event.awayScore || "0";
+                            const matchDate = formatMatchDate(event.startDateTimeString);
+
+                            console.log(chalk.white.bold(`H2H ${h2hCounter}:`));
+                            console.log(chalk.green(`Stage Name: ${stageName}`));
+                            console.log(chalk.yellow(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`));
+
+                            matchData.h2h.push({
+                                "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
+                                "Stage Name": stageName,
+                                "date": matchDate
+                            });
+                            h2hCounter++;
+                        });
+                    }
+                });
+            } else {
+                console.log(chalk.red('No H2H data found'));
+            }
+
+            // Process all home last matches across all sub-arrays
+            const homeData = h2hData?.pageProps?.initialEventData?.event?.headToHead?.home;
+            if (homeData?.length) {
+                matchData["Home last matches"] = [];
+                console.log(chalk.blue('\nHome last matches:'));
+                let hlmCounter = 1;
+                homeData.forEach(homeGroup => {
+                    if (homeGroup.events?.length) {
+                        homeGroup.events.forEach(event => {
+                            const stageName = event.stage?.stageName || "unknown";
+                            const homeTeam = event.homeName || "unknown";
+                            const awayTeam = event.awayName || "unknown";
+                            const homeScore = event.homeScore || "0";
+                            const awayScore = event.awayScore || "0";
+                            const matchDate = formatMatchDate(event.startDateTimeString);
+
+                            console.log(chalk.white.bold(`HLM ${hlmCounter}:`));
+                            console.log(chalk.green(`Stage Name: ${stageName}`));
+                            console.log(chalk.yellow(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`));
+
+                            matchData["Home last matches"].push({
+                                "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
+                                "Stage Name": stageName,
+                                "date": matchDate
+                            });
+                            hlmCounter++;
+                        });
+                        hasData = true;
+                    }
+                });
+            } else {
+                console.log(chalk.red('No Home last matches found'));
+            }
+
+            // Process all away last matches across all sub-arrays
+            const awayData = h2hData?.pageProps?.initialEventData?.event?.headToHead?.away;
+            if (awayData?.length) {
+                matchData["Away last matches"] = [];
+                console.log(chalk.blue('\nAway last matches:'));
+                let almCounter = 1;
+                awayData.forEach(awayGroup => { // Fixed from previous typo
+                    if (awayGroup.events?.length) {
+                        awayGroup.events.forEach(event => { // Fixed from homeGroup to awayGroup
+                            const stageName = event.stage?.stageName || "unknown";
+                            const homeTeam = event.homeName || "unknown";
+                            const awayTeam = event.awayName || "unknown";
+                            const homeScore = event.homeScore || "0";
+                            const awayScore = event.awayScore || "0";
+                            const matchDate = formatMatchDate(event.startDateTimeString);
+
+                            console.log(chalk.white.bold(`ALM ${almCounter}:`));
+                            console.log(chalk.green(`Stage Name: ${stageName}`));
+                            console.log(chalk.yellow(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`));
+
+                            matchData["Away last matches"].push({
+                                "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
+                                "Stage Name": stageName,
+                                "date": matchDate
+                            });
+                            almCounter++;
+                        });
+                        hasData = true;
+                    }
+                });
+            } else {
+                console.log(chalk.red('No Away last matches found'));
+            }
+
+            // Save if any data was found (h2h, home, or away)
+            if (hasData) {
+                fixturesData.matches.push(matchData);
+                await saveFixturesData();
+            } else {
+                console.log(chalk.red('No H2H, Home, or Away data found for this URL'));
+            }
+
+            await processUrl(urlIndex + 1);
+        } catch (error) {
+            console.log(chalk.red(`Skipping URL ${urlIndex + 1} due to error: ${error.message}`));
+            await saveFixturesData(); // Save current state before skipping
+            await processUrl(urlIndex + 1);
+        }
+    };
+
+    processUrl(0);
+})
+.catch(async error => {
+    console.error(chalk.red("Error in first API call: ") + error.message);
+    // Save partial data and logs on error
+    await setValue('FIXTURES', fixturesData, { contentType: 'application/json' });
+    const dataset = await openDataset('OUTPUT');
+    await dataset.pushData(logs.map(line => ({ log: line })));
+});
