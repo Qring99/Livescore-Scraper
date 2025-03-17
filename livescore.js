@@ -111,7 +111,8 @@ axios.get(url)
 
     const saveFixturesData = async () => {
         try {
-            await fs.writeFile('Fixtures.json', JSON.stringify(fixturesData, null, 2));
+            const Apify = require('apify');
+await Apify.setValue('Fixtures.json', fixturesData);
             console.log(chalk.magenta('Fixtures.json updated'));
         } catch (error) {
             console.error(chalk.red('Error saving Fixtures.json: ') + error.message);
