@@ -1,26 +1,31 @@
 const axios = require('axios');
-const { setValue, openDataset } = require('apify'); // Import specific Apify methods
+const fs = require('fs').promises;
 const chalk = require('chalk'); // Using v4.1.2
 const figlet = require('figlet');
+const fsSync = require('fs');
+const Apify = require('apify'); // Added for Apify storage
 
-// Removed fs and fsSync since Apify handles storage
+// Buffer to store logs instead of writing to file
+let logBuffer = '';
 
 // Store the original console.log
 const originalConsoleLog = console.log;
 
-// Override console.log to collect logs for Apify dataset (no file stream)
-const logs = []; // Array to store log lines
+// Override console.log to write to terminal and buffer
 console.log = function (...args) {
+    // Print to terminal with original behavior (including chalk colors)
     originalConsoleLog.apply(console, args);
 
+    // Prepare the log message as plain text (strip chalk colors for buffer)
     const plainText = args.map(arg => {
         if (typeof arg === 'string') {
-            return arg.replace(/\x1b\[[0-9;]*m/g, ''); // Remove ANSI codes
+            return arg.replace(/\x1b\[[0-9;]*m/g, '');
         }
         return arg;
     }).join(' ');
 
-    logs.push(plainText); // Collect logs in memory
+    // Append to buffer instead of file
+    logBuffer += plainText + '\n';
 };
 
 function getTodayDate() {
@@ -28,12 +33,12 @@ function getTodayDate() {
     const year = today.getFullYear();
     const month = String(today.getMonth() + 1).padStart(2, '0');
     const day = String(today.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`; // e.g., "2025-03-17"
+    return `${year}-${month}-${day}`; // e.g., "2025-03-15"
 }
 
 function formatMatchDate(dateString) {
     if (!dateString || dateString.length < 8) return "unknown";
-    const year = dateString.slice(0, 4).slice(-2);
+    const year = dateString.slice(0, 4).slice(-2); // Last 2 digits
     const month = dateString.slice(4, 6);
     const day = dateString.slice(6, 8);
     return `${day}.${month}.${year}`; // e.g., "27.10.24"
@@ -87,7 +92,6 @@ axios.get(url)
                     if (key === "8") {
                         const pidsValue = event.Pids[key] || "unknown";
                         const newUrl = `https://www.livescore.com/_next/data/rBZqXyzFUTFIHBhe08WFB/en/football/${cnmT}/${scd}/${t1Name}-vs-${t2Name}/${pidsValue}/h2h.json`;
-                        // console.log(chalk.blue('URL: ') + newUrl); // Commented out as per your script
                         urlCount++;
                         allUrls.push({ url: newUrl, team1: t1Name, team2: t2Name });
                     }
@@ -107,21 +111,20 @@ axios.get(url)
     const saveFixturesData = async () => {
         try {
             // Save to Apify key-value store instead of local file
-            await setValue('FIXTURES', fixturesData, { contentType: 'application/json' });
-            console.log(chalk.magenta('Fixtures data saved to Apify store'));
+            await Apify.setValue('Fixtures.json', JSON.stringify(fixturesData, null, 2), { contentType: 'application/json' });
+            console.log(chalk.magenta('Fixtures.json updated in Apify storage'));
         } catch (error) {
-            console.error(chalk.red('Error saving Fixtures data to Apify: ') + error.message);
+            console.error(chalk.red('Error saving Fixtures.json to Apify storage: ') + error.message);
         }
     };
 
     const processUrl = async (urlIndex) => {
         if (urlIndex >= allUrls.length) {
             console.log(chalk.magenta('All Fixtures processed'));
-            await saveFixturesData(); // Final save
-            // Save logs to Apify dataset
-            const dataset = await openDataset('OUTPUT');
-            await dataset.pushData(logs.map(line => ({ log: line })));
-            console.log(chalk.magenta('Output logs saved to Apify dataset'));
+            await saveFixturesData(); // Final save of Fixtures.json
+            // Save log buffer to Apify storage
+            await Apify.setValue('output.txt', logBuffer, { contentType: 'text/plain' });
+            console.log(chalk.magenta('output.txt saved to Apify storage'));
             return;
         }
 
@@ -146,7 +149,6 @@ axios.get(url)
                 console.log(chalk.red('metaParams not found'));
             }
 
-            // Process head-to-head matches (h2h arrays)
             const headToHead = h2hData?.pageProps?.initialEventData?.event?.headToHead?.h2h;
             if (headToHead?.length) {
                 matchData.h2h = [];
@@ -179,7 +181,6 @@ axios.get(url)
                 console.log(chalk.red('No H2H data found'));
             }
 
-            // Process all home last matches across all sub-arrays
             const homeData = h2hData?.pageProps?.initialEventData?.event?.headToHead?.home;
             if (homeData?.length) {
                 matchData["Home last matches"] = [];
@@ -213,15 +214,14 @@ axios.get(url)
                 console.log(chalk.red('No Home last matches found'));
             }
 
-            // Process all away last matches across all sub-arrays
             const awayData = h2hData?.pageProps?.initialEventData?.event?.headToHead?.away;
             if (awayData?.length) {
                 matchData["Away last matches"] = [];
                 console.log(chalk.blue('\nAway last matches:'));
                 let almCounter = 1;
-                awayData.forEach(awayGroup => { // Fixed from previous typo
+                awayData.forEach(awayGroup => {
                     if (awayGroup.events?.length) {
-                        awayGroup.events.forEach(event => { // Fixed from homeGroup to awayGroup
+                        awayGroup.events.forEach(event => {
                             const stageName = event.stage?.stageName || "unknown";
                             const homeTeam = event.homeName || "unknown";
                             const awayTeam = event.awayName || "unknown";
@@ -247,7 +247,6 @@ axios.get(url)
                 console.log(chalk.red('No Away last matches found'));
             }
 
-            // Save if any data was found (h2h, home, or away)
             if (hasData) {
                 fixturesData.matches.push(matchData);
                 await saveFixturesData();
@@ -265,10 +264,9 @@ axios.get(url)
 
     processUrl(0);
 })
-.catch(async error => {
-    console.error(chalk.red("Error in first API call: ") + error.message);
-    // Save partial data and logs on error
-    await setValue('FIXTURES', fixturesData, { contentType: 'application/json' });
-    const dataset = await openDataset('OUTPUT');
-    await dataset.pushData(logs.map(line => ({ log: line })));
+.catch(error => console.error(chalk.red("Error in first API call: ") + error.message));
+
+// Save buffer to Apify storage on exit
+process.on('exit', async () => {
+    await Apify.setValue('output.txt', logBuffer, { contentType: 'text/plain' });
 });
