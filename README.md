@@ -25,7 +25,7 @@ Follow these steps to set up and run the script:
 2. **Clone the Repository**  
    - Clone this repo to your local machine:
      ```bash
-     git clone https://github.com/[YourUsername]/Livescore_Scraper.git
+     git clone https://github.com/Qring99/Livescore_Scraper.git
      ```
    - Navigate into the directory:
      ```bash
