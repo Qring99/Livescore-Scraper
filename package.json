@@ -1,5 +1,15 @@
 {
+  "name": "football-fixtures-scraper",
+  "version": "1.0.0",
+  "description": "A football fixture scraper using LiveScore",
+  "main": "livescore.js",
   "scripts": {
     "start": "node livescore.js"
+  },
+  "dependencies": {
+    "apify": "^3.0.0",
+    "axios": "^1.3.0",
+    "chalk": "^4.1.2",
+    "figlet": "^1.5.2"
   }
 }
