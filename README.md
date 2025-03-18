@@ -50,7 +50,7 @@ Follow these steps to set up and run the script:
      node livescore.js
      ```
 ## Important Notice for Apify Users:
-If you run this tool on Apify, it will execute successfully, but the output file (Fixtures.json and output.txt) will not be saved locally. This is due to how Apify handles file storage. Unlike a traditional local environment, Apify does not support direct file saving using fs.writeFile() or fs.createWriteStream(). Instead, Apify stores output in its Key-Value Store, which requires a different method to access your data.
+If you run this tool on Apify, it will execute successfully, but the output file---Fixtures.json and output.txt---will not be saved locally. This is due to how Apify handles file storage. Unlike a traditional local environment, Apify does not support direct file saving using fs.writeFile() or fs.createWriteStream(). Instead, Apify stores output in its Key-Value Store, which requires a different method to access your data.
 
 For the best experience, we highly recommend installing and running this tool on your local machine, where you can properly generate and access Fixtures.json and output.txt.
 
