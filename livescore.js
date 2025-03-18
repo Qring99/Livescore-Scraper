@@ -1,10 +1,8 @@
-const Apify = require('apify');
-
-(async () => {
 const axios = require('axios');
 const fs = require('fs').promises;
 const chalk = require('chalk'); // Using v4.1.2
 const figlet = require('figlet');
+const Apify = require('apify');
 const fsSync = require('fs'); // Added for synchronous file operations (write stream)
 
 // Create a write stream to output.txt (append mode)
@@ -113,13 +111,13 @@ axios.get(url)
     }
 
     const saveFixturesData = async () => {
-        try {
-            await Apify.setValue('Fixtures', fixturesData);
-            console.log(chalk.magenta('Fixtures.json updated'));
-        } catch (error) {
-            console.error(chalk.red('Error saving Fixtures.json: ') + error.message);
-        }
-    };
+    try {
+        await Apify.setValue('Fixtures', fixturesData);
+        console.log(chalk.magenta('Fixtures.json saved to Apify Storage'));
+    } catch (error) {
+        console.error(chalk.red('Error saving Fixtures.json: ') + error.message);
+    }
+};
 
     const processUrl = async (urlIndex) => {
         if (urlIndex >= allUrls.length) {
@@ -265,7 +263,6 @@ axios.get(url)
             await processUrl(urlIndex + 1);
         }
     };
-})
 
     processUrl(0);
 })
