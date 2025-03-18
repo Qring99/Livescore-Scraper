@@ -3,16 +3,6 @@ const axios = require('axios');
 const chalk = require('chalk'); // Using v4.1.2
 const figlet = require('figlet');
 
-// No need for fs or fsSync since we'll use Apify storage
-
-// Store the original console.log (chalk still works in Apify terminal)
-const originalConsoleLog = console.log;
-
-// Override console.log for terminal output (no file logging)
-console.log = function (...args) {
-    originalConsoleLog.apply(console, args);
-};
-
 function getTodayDate() {
     const today = new Date();
     const year = today.getFullYear();
@@ -38,7 +28,12 @@ function getTomorrowDate() {
     return `${year}${month}${day}`;
 }
 
-// Wrap the logic in Apify.main
+// Helper function to log to both console and dataset
+async function logToConsoleAndDataset(message, logDataset, color = chalk.white) {
+    console.log(color(message));
+    await logDataset.pushData({ message: message.replace(/\x1b\[[0-9;]*m/g, '') }); // Strip ANSI codes
+}
+
 Apify.main(async () => {
     const tomorrowDate = getTomorrowDate();
     const url = `https://prod-cdn-mev-api.livescore.com/v1/api/app/date/soccer/${tomorrowDate}/0?countryCode=NG&locale=en&MD=1`;
@@ -56,17 +51,15 @@ Apify.main(async () => {
     const logDataset = await Apify.openDataset('fixture-logs');
 
     // Display script header
-    console.log(chalk.white.bold(figlet.textSync('Football Fixtures Scraper by Qring', { font: 'Standard' })));
-    console.log(chalk.white.bold('=== FOOTBALL FIXTURES SCRAPER ==='));
-    await logDataset.pushData({ message: '=== FOOTBALL FIXTURES SCRAPER ===' });
+    await logToConsoleAndDataset(figlet.textSync('Football Fixtures Scraper by Qring', { font: 'Standard' }), logDataset, chalk.white.bold);
+    await logToConsoleAndDataset('=== FOOTBALL FIXTURES SCRAPER ===', logDataset, chalk.white.bold);
 
     try {
         const response = await axios.get(url);
         const data = response.data;
 
         if (!data?.Stages?.length) {
-            console.log(chalk.red('No stages found in initial response'));
-            await logDataset.pushData({ message: 'No stages found in initial response' });
+            await logToConsoleAndDataset('No stages found in initial response', logDataset, chalk.red);
             return;
         }
 
@@ -93,38 +86,32 @@ Apify.main(async () => {
             });
         });
 
-        console.log(chalk.magenta('Total Matches Found: ') + urlCount);
-        await logDataset.pushData({ message: `Total Matches Found: ${urlCount}` });
+        await logToConsoleAndDataset(`Total Matches Found: ${urlCount}`, logDataset, chalk.magenta);
         fixturesData.total_matches_tomorrow = urlCount;
 
         if (!allUrls.length) {
-            console.log(chalk.red('No Matches Found'));
-            await logDataset.pushData({ message: 'No Matches Found' });
+            await logToConsoleAndDataset('No Matches Found', logDataset, chalk.red);
             return;
         }
 
         const saveFixturesData = async () => {
             try {
                 await kvStore.setValue('Fixtures', fixturesData);
-                console.log(chalk.magenta('Fixtures data updated in KeyValueStore'));
-                await logDataset.pushData({ message: 'Fixtures data updated in KeyValueStore' });
+                await logToConsoleAndDataset('Fixtures data updated in KeyValueStore', logDataset, chalk.magenta);
             } catch (error) {
-                console.error(chalk.red('Error saving Fixtures data: ') + error.message);
-                await logDataset.pushData({ message: `Error saving Fixtures data: ${error.message}` });
+                await logToConsoleAndDataset(`Error saving Fixtures data: ${error.message}`, logDataset, chalk.red);
             }
         };
 
         const processUrl = async (urlIndex) => {
             if (urlIndex >= allUrls.length) {
-                console.log(chalk.magenta('All Fixtures processed'));
-                await logDataset.pushData({ message: 'All Fixtures processed' });
+                await logToConsoleAndDataset('All Fixtures processed', logDataset, chalk.magenta);
                 await saveFixturesData(); // Final save
                 return;
             }
 
             const { url: currentUrl, team1, team2 } = allUrls[urlIndex];
-            console.log(chalk.blue(`\nProcessing Fixtures ${urlIndex + 1}: `) + `${team1} vs ${team2}`);
-            await logDataset.pushData({ message: `Processing Fixtures ${urlIndex + 1}: ${team1} vs ${team2}` });
+            await logToConsoleAndDataset(`\nProcessing Fixtures ${urlIndex + 1}: ${team1} vs ${team2}`, logDataset, chalk.blue);
 
             try {
                 const response = await axios.get(currentUrl);
@@ -138,12 +125,10 @@ Apify.main(async () => {
                     const team1 = metaParams.team1 || "unknown";
                     const team2 = metaParams.team2 || "unknown";
                     matchData.teams = `${team1} vs ${team2}`;
-                    console.log(chalk.cyan(`"${team1}" vs "${team2}"`));
-                    await logDataset.pushData({ message: `"${team1}" vs "${team2}"` });
+                    await logToConsoleAndDataset(`"${team1}" vs "${team2}"`, logDataset, chalk.cyan);
                 } else {
                     matchData.teams = "unknown vs unknown";
-                    console.log(chalk.red('metaParams not found'));
-                    await logDataset.pushData({ message: 'metaParams not found' });
+                    await logToConsoleAndDataset('metaParams not found', logDataset, chalk.red);
                 }
 
                 // Process head-to-head matches
@@ -154,7 +139,7 @@ Apify.main(async () => {
                     headToHead.forEach(h2hGroup => {
                         if (h2hGroup.events?.length) {
                             hasData = true;
-                            h2hGroup.events.forEach(event => {
+                            h2hGroup.events.forEach(async (event) => {
                                 const stageName = event.stage?.stageName || "unknown";
                                 const homeTeam = event.homeName || "unknown";
                                 const awayTeam = event.awayName || "unknown";
@@ -162,12 +147,9 @@ Apify.main(async () => {
                                 const awayScore = event.awayScore || "0";
                                 const matchDate = formatMatchDate(event.startDateTimeString);
 
-                                console.log(chalk.white.bold(`H2H ${h2hCounter}:`));
-                                console.log(chalk.green(`Stage Name: ${stageName}`));
-                                console.log(chalk.yellow(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`));
-                                await logDataset.pushData({
-                                    message: `H2H ${h2hCounter}: Stage Name: ${stageName}, Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`
-                                });
+                                await logToConsoleAndDataset(`H2H ${h2hCounter}:`, logDataset, chalk.white.bold);
+                                await logToConsoleAndDataset(`Stage Name: ${stageName}`, logDataset, chalk.green);
+                                await logToConsoleAndDataset(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, logDataset, chalk.yellow);
 
                                 matchData.h2h.push({
                                     "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
@@ -179,20 +161,18 @@ Apify.main(async () => {
                         }
                     });
                 } else {
-                    console.log(chalk.red('No H2H data found'));
-                    await logDataset.pushData({ message: 'No H2H data found' });
+                    await logToConsoleAndDataset('No H2H data found', logDataset, chalk.red);
                 }
 
                 // Process home last matches
                 const homeData = h2hData?.pageProps?.initialEventData?.event?.headToHead?.home;
                 if (homeData?.length) {
                     matchData["Home last matches"] = [];
-                    console.log(chalk.blue('\nHome last matches:'));
-                    await logDataset.pushData({ message: 'Home last matches:' });
+                    await logToConsoleAndDataset('\nHome last matches:', logDataset, chalk.blue);
                     let hlmCounter = 1;
                     homeData.forEach(homeGroup => {
                         if (homeGroup.events?.length) {
-                            homeGroup.events.forEach(event => {
+                            homeGroup.events.forEach(async (event) => {
                                 const stageName = event.stage?.stageName || "unknown";
                                 const homeTeam = event.homeName || "unknown";
                                 const awayTeam = event.awayName || "unknown";
@@ -200,12 +180,9 @@ Apify.main(async () => {
                                 const awayScore = event.awayScore || "0";
                                 const matchDate = formatMatchDate(event.startDateTimeString);
 
-                                console.log(chalk.white.bold(`HLM ${hlmCounter}:`));
-                                console.log(chalk.green(`Stage Name: ${stageName}`));
-                                console.log(chalk.yellow(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`));
-                                await logDataset.pushData({
-                                    message: `HLM ${hlmCounter}: Stage Name: ${stageName}, Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`
-                                });
+                                await logToConsoleAndDataset(`HLM ${hlmCounter}:`, logDataset, chalk.white.bold);
+                                await logToConsoleAndDataset(`Stage Name: ${stageName}`, logDataset, chalk.green);
+                                await logToConsoleAndDataset(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, logDataset, chalk.yellow);
 
                                 matchData["Home last matches"].push({
                                     "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
@@ -218,20 +195,18 @@ Apify.main(async () => {
                         }
                     });
                 } else {
-                    console.log(chalk.red('No Home last matches found'));
-                    await logDataset.pushData({ message: 'No Home last matches found' });
+                    await logToConsoleAndDataset('No Home last matches found', logDataset, chalk.red);
                 }
 
                 // Process away last matches
                 const awayData = h2hData?.pageProps?.initialEventData?.event?.headToHead?.away;
                 if (awayData?.length) {
                     matchData["Away last matches"] = [];
-                    console.log(chalk.blue('\nAway last matches:'));
-                    await logDataset.pushData({ message: 'Away last matches:' });
+                    await logToConsoleAndDataset('\nAway last matches:', logDataset, chalk.blue);
                     let almCounter = 1;
                     awayData.forEach(awayGroup => {
                         if (awayGroup.events?.length) {
-                            awayGroup.events.forEach(event => {
+                            awayGroup.events.forEach(async (event) => {
                                 const stageName = event.stage?.stageName || "unknown";
                                 const homeTeam = event.homeName || "unknown";
                                 const awayTeam = event.awayName || "unknown";
@@ -239,12 +214,9 @@ Apify.main(async () => {
                                 const awayScore = event.awayScore || "0";
                                 const matchDate = formatMatchDate(event.startDateTimeString);
 
-                                console.log(chalk.white.bold(`ALM ${almCounter}:`));
-                                console.log(chalk.green(`Stage Name: ${stageName}`));
-                                console.log(chalk.yellow(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`));
-                                await logDataset.pushData({
-                                    message: `ALM ${almCounter}: Stage Name: ${stageName}, Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`
-                                });
+                                await logToConsoleAndDataset(`ALM ${almCounter}:`, logDataset, chalk.white.bold);
+                                await logToConsoleAndDataset(`Stage Name: ${stageName}`, logDataset, chalk.green);
+                                await logToConsoleAndDataset(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, logDataset, chalk.yellow);
 
                                 matchData["Away last matches"].push({
                                     "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
@@ -257,22 +229,19 @@ Apify.main(async () => {
                         }
                     });
                 } else {
-                    console.log(chalk.red('No Away last matches found'));
-                    await logDataset.pushData({ message: 'No Away last matches found' });
+                    await logToConsoleAndDataset('No Away last matches found', logDataset, chalk.red);
                 }
 
                 if (hasData) {
                     fixturesData.matches.push(matchData);
                     await saveFixturesData();
                 } else {
-                    console.log(chalk.red('No H2H, Home, or Away data found for this URL'));
-                    await logDataset.pushData({ message: 'No H2H, Home, or Away data found for this URL' });
+                    await logToConsoleAndDataset('No H2H, Home, or Away data found for this URL', logDataset, chalk.red);
                 }
 
                 await processUrl(urlIndex + 1);
             } catch (error) {
-                console.log(chalk.red(`Skipping URL ${urlIndex + 1} due to error: ${error.message}`));
-                await logDataset.pushData({ message: `Skipping URL ${urlIndex + 1} due to error: ${error.message}` });
+                await logToConsoleAndDataset(`Skipping URL ${urlIndex + 1} due to error: ${error.message}`, logDataset, chalk.red);
                 await saveFixturesData(); // Save current state before skipping
                 await processUrl(urlIndex + 1);
             }
@@ -280,7 +249,6 @@ Apify.main(async () => {
 
         await processUrl(0);
     } catch (error) {
-        console.error(chalk.red("Error in first API call: ") + error.message);
-        await logDataset.pushData({ message: `Error in first API call: ${error.message}` });
+        await logToConsoleAndDataset(`Error in first API call: ${error.message}`, logDataset, chalk.red);
     }
 });
