@@ -1,6 +1,23 @@
 # Livescore_Scraper
 A Node.js command-line tool to scrape football (soccer) fixtures from LiveScore. This script fetches match data, including head-to-head stats, home and away team last matches, and upcoming fixtures for the next match day. It saves the scraped data to Fixtures.json and logs all output to output.txt for easy reference. Features include colorized terminal output, robust error handling, and automated fixture retrieval. The premium version supports custom date selection. Ideal for football enthusiasts, developers, and match data analysts.
 
+## Why This Script Stands Out
+
+By default, this script scrapes all football fixtures for tomorrow from LiveScore, delivering comprehensive match data with fast and efficient execution.
+
+High-Speed Scraping Runs in under 20 minutes, depending on the size of the extracted data.
+
+Real-Time Logging Displays detailed match data with rapid console logging.
+
+Optimized Performance Built for speed and efficiency, ensuring quick data retrieval.
+
+Apify Compatibility Can run on Apify, but due to its high-speed logging, Apify may display a warning:
+"WARNING: Logging is too fast, some lines were skipped."
+
+Best Experience on Local Machines For full logs and maximum efficiency, we recommend installing and running the script locally from GitHub.
+
+
+This script is designed for football analysts, developers, and data enthusiasts who need accurate and timely match data with minimal
 
 ## Installation Guideline
 
