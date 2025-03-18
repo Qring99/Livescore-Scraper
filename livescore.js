@@ -1,8 +1,35 @@
-const Apify = require('apify');
 const axios = require('axios');
+const fs = require('fs').promises;
 const chalk = require('chalk'); // Using v4.1.2
 const figlet = require('figlet');
+const path = require('path');
 
+// Helper to determine if running on Apify
+function isOnApify() {
+    return process.env['APIFY_IS_AT_HOME'] === '1';
+}
+
+// Define storage paths
+const STORAGE_DIR = './storage';
+const KV_STORE_DIR = path.join(STORAGE_DIR, 'key_value_stores', 'default');
+const DATASET_DIR = path.join(STORAGE_DIR, 'datasets', 'default');
+const FIXTURES_FILE = path.join(KV_STORE_DIR, 'Fixtures.json');
+const LOG_FILE = path.join(DATASET_DIR, 'logs.jsonl'); // Using .jsonl for line-separated JSON
+
+// Ensure directories exist
+async function ensureDirectories() {
+    await fs.mkdir(KV_STORE_DIR, { recursive: true }).catch(() => {});
+    await fs.mkdir(DATASET_DIR, { recursive: true }).catch(() => {});
+}
+
+// Helper to log to both console and file
+async function logToConsoleAndFile(message, color = chalk.white) {
+    console.log(color(message));
+    const plainMessage = message.replace(/\x1b\[[0-9;]*m/g, ''); // Strip ANSI codes
+    await fs.appendFile(LOG_FILE, JSON.stringify({ message: plainMessage }) + '\n');
+}
+
+// Date utility functions
 function getTodayDate() {
     const today = new Date();
     const year = today.getFullYear();
@@ -28,13 +55,10 @@ function getTomorrowDate() {
     return `${year}${month}${day}`;
 }
 
-// Helper function to log to both console and dataset
-async function logToConsoleAndDataset(message, logDataset, color = chalk.white) {
-    console.log(color(message));
-    await logDataset.pushData({ message: message.replace(/\x1b\[[0-9;]*m/g, '') }); // Strip ANSI codes
-}
+// Main execution function
+async function main() {
+    await ensureDirectories();
 
-Apify.main(async () => {
     const tomorrowDate = getTomorrowDate();
     const url = `https://prod-cdn-mev-api.livescore.com/v1/api/app/date/soccer/${tomorrowDate}/0?countryCode=NG&locale=en&MD=1`;
 
@@ -46,20 +70,16 @@ Apify.main(async () => {
         "matches": []
     };
 
-    // Open Apify storage
-    const kvStore = await Apify.openKeyValueStore('football-fixtures');
-    const logDataset = await Apify.openDataset('fixture-logs');
-
     // Display script header
-    await logToConsoleAndDataset(figlet.textSync('Football Fixtures Scraper by Qring', { font: 'Standard' }), logDataset, chalk.white.bold);
-    await logToConsoleAndDataset('=== FOOTBALL FIXTURES SCRAPER ===', logDataset, chalk.white.bold);
+    await logToConsoleAndFile(figlet.textSync('Football Fixtures Scraper by Qring', { font: 'Standard' }), chalk.white.bold);
+    await logToConsoleAndFile('=== FOOTBALL FIXTURES SCRAPER ===', chalk.white.bold);
 
     try {
         const response = await axios.get(url);
         const data = response.data;
 
         if (!data?.Stages?.length) {
-            await logToConsoleAndDataset('No stages found in initial response', logDataset, chalk.red);
+            await logToConsoleAndFile('No stages found in initial response', chalk.red);
             return;
         }
 
@@ -86,32 +106,32 @@ Apify.main(async () => {
             });
         });
 
-        await logToConsoleAndDataset(`Total Matches Found: ${urlCount}`, logDataset, chalk.magenta);
+        await logToConsoleAndFile(`Total Matches Found: ${urlCount}`, chalk.magenta);
         fixturesData.total_matches_tomorrow = urlCount;
 
         if (!allUrls.length) {
-            await logToConsoleAndDataset('No Matches Found', logDataset, chalk.red);
+            await logToConsoleAndFile('No Matches Found', chalk.red);
             return;
         }
 
         const saveFixturesData = async () => {
             try {
-                await kvStore.setValue('Fixtures', fixturesData);
-                await logToConsoleAndDataset('Fixtures data updated in KeyValueStore', logDataset, chalk.magenta);
+                await fs.writeFile(FIXTURES_FILE, JSON.stringify(fixturesData, null, 2));
+                await logToConsoleAndFile('Fixtures data updated', chalk.magenta);
             } catch (error) {
-                await logToConsoleAndDataset(`Error saving Fixtures data: ${error.message}`, logDataset, chalk.red);
+                await logToConsoleAndFile(`Error saving Fixtures data: ${error.message}`, chalk.red);
             }
         };
 
         const processUrl = async (urlIndex) => {
             if (urlIndex >= allUrls.length) {
-                await logToConsoleAndDataset('All Fixtures processed', logDataset, chalk.magenta);
+                await logToConsoleAndFile('All Fixtures processed', chalk.magenta);
                 await saveFixturesData(); // Final save
                 return;
             }
 
             const { url: currentUrl, team1, team2 } = allUrls[urlIndex];
-            await logToConsoleAndDataset(`\nProcessing Fixtures ${urlIndex + 1}: ${team1} vs ${team2}`, logDataset, chalk.blue);
+            await logToConsoleAndFile(`\nProcessing Fixtures ${urlIndex + 1}: ${team1} vs ${team2}`, chalk.blue);
 
             try {
                 const response = await axios.get(currentUrl);
@@ -125,10 +145,10 @@ Apify.main(async () => {
                     const team1 = metaParams.team1 || "unknown";
                     const team2 = metaParams.team2 || "unknown";
                     matchData.teams = `${team1} vs ${team2}`;
-                    await logToConsoleAndDataset(`"${team1}" vs "${team2}"`, logDataset, chalk.cyan);
+                    await logToConsoleAndFile(`"${team1}" vs "${team2}"`, chalk.cyan);
                 } else {
                     matchData.teams = "unknown vs unknown";
-                    await logToConsoleAndDataset('metaParams not found', logDataset, chalk.red);
+                    await logToConsoleAndFile('metaParams not found', chalk.red);
                 }
 
                 // Process head-to-head matches
@@ -136,10 +156,10 @@ Apify.main(async () => {
                 if (headToHead?.length) {
                     matchData.h2h = [];
                     let h2hCounter = 1;
-                    headToHead.forEach(h2hGroup => {
+                    for (const h2hGroup of headToHead) {
                         if (h2hGroup.events?.length) {
                             hasData = true;
-                            h2hGroup.events.forEach(async (event) => {
+                            for (const event of h2hGroup.events) {
                                 const stageName = event.stage?.stageName || "unknown";
                                 const homeTeam = event.homeName || "unknown";
                                 const awayTeam = event.awayName || "unknown";
@@ -147,9 +167,9 @@ Apify.main(async () => {
                                 const awayScore = event.awayScore || "0";
                                 const matchDate = formatMatchDate(event.startDateTimeString);
 
-                                await logToConsoleAndDataset(`H2H ${h2hCounter}:`, logDataset, chalk.white.bold);
-                                await logToConsoleAndDataset(`Stage Name: ${stageName}`, logDataset, chalk.green);
-                                await logToConsoleAndDataset(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, logDataset, chalk.yellow);
+                                await logToConsoleAndFile(`H2H ${h2hCounter}:`, chalk.white.bold);
+                                await logToConsoleAndFile(`Stage Name: ${stageName}`, chalk.green);
+                                await logToConsoleAndFile(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, chalk.yellow);
 
                                 matchData.h2h.push({
                                     "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
@@ -157,22 +177,22 @@ Apify.main(async () => {
                                     "date": matchDate
                                 });
                                 h2hCounter++;
-                            });
+                            }
                         }
-                    });
+                    }
                 } else {
-                    await logToConsoleAndDataset('No H2H data found', logDataset, chalk.red);
+                    await logToConsoleAndFile('No H2H data found', chalk.red);
                 }
 
                 // Process home last matches
                 const homeData = h2hData?.pageProps?.initialEventData?.event?.headToHead?.home;
                 if (homeData?.length) {
                     matchData["Home last matches"] = [];
-                    await logToConsoleAndDataset('\nHome last matches:', logDataset, chalk.blue);
+                    await logToConsoleAndFile('\nHome last matches:', chalk.blue);
                     let hlmCounter = 1;
-                    homeData.forEach(homeGroup => {
+                    for (const homeGroup of homeData) {
                         if (homeGroup.events?.length) {
-                            homeGroup.events.forEach(async (event) => {
+                            for (const event of homeGroup.events) {
                                 const stageName = event.stage?.stageName || "unknown";
                                 const homeTeam = event.homeName || "unknown";
                                 const awayTeam = event.awayName || "unknown";
@@ -180,9 +200,9 @@ Apify.main(async () => {
                                 const awayScore = event.awayScore || "0";
                                 const matchDate = formatMatchDate(event.startDateTimeString);
 
-                                await logToConsoleAndDataset(`HLM ${hlmCounter}:`, logDataset, chalk.white.bold);
-                                await logToConsoleAndDataset(`Stage Name: ${stageName}`, logDataset, chalk.green);
-                                await logToConsoleAndDataset(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, logDataset, chalk.yellow);
+                                await logToConsoleAndFile(`HLM ${hlmCounter}:`, chalk.white.bold);
+                                await logToConsoleAndFile(`Stage Name: ${stageName}`, chalk.green);
+                                await logToConsoleAndFile(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, chalk.yellow);
 
                                 matchData["Home last matches"].push({
                                     "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
@@ -190,23 +210,23 @@ Apify.main(async () => {
                                     "date": matchDate
                                 });
                                 hlmCounter++;
-                            });
+                            }
                             hasData = true;
                         }
-                    });
+                    }
                 } else {
-                    await logToConsoleAndDataset('No Home last matches found', logDataset, chalk.red);
+                    await logToConsoleAndFile('No Home last matches found', chalk.red);
                 }
 
                 // Process away last matches
                 const awayData = h2hData?.pageProps?.initialEventData?.event?.headToHead?.away;
                 if (awayData?.length) {
                     matchData["Away last matches"] = [];
-                    await logToConsoleAndDataset('\nAway last matches:', logDataset, chalk.blue);
+                    await logToConsoleAndFile('\nAway last matches:', chalk.blue);
                     let almCounter = 1;
-                    awayData.forEach(awayGroup => {
+                    for (const awayGroup of awayData) {
                         if (awayGroup.events?.length) {
-                            awayGroup.events.forEach(async (event) => {
+                            for (const event of awayGroup.events) {
                                 const stageName = event.stage?.stageName || "unknown";
                                 const homeTeam = event.homeName || "unknown";
                                 const awayTeam = event.awayName || "unknown";
@@ -214,9 +234,9 @@ Apify.main(async () => {
                                 const awayScore = event.awayScore || "0";
                                 const matchDate = formatMatchDate(event.startDateTimeString);
 
-                                await logToConsoleAndDataset(`ALM ${almCounter}:`, logDataset, chalk.white.bold);
-                                await logToConsoleAndDataset(`Stage Name: ${stageName}`, logDataset, chalk.green);
-                                await logToConsoleAndDataset(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, logDataset, chalk.yellow);
+                                await logToConsoleAndFile(`ALM ${almCounter}:`, chalk.white.bold);
+                                await logToConsoleAndFile(`Stage Name: ${stageName}`, chalk.green);
+                                await logToConsoleAndFile(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, chalk.yellow);
 
                                 matchData["Away last matches"].push({
                                     "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
@@ -224,24 +244,24 @@ Apify.main(async () => {
                                     "date": matchDate
                                 });
                                 almCounter++;
-                            });
+                            }
                             hasData = true;
                         }
-                    });
+                    }
                 } else {
-                    await logToConsoleAndDataset('No Away last matches found', logDataset, chalk.red);
+                    await logToConsoleAndFile('No Away last matches found', chalk.red);
                 }
 
                 if (hasData) {
                     fixturesData.matches.push(matchData);
                     await saveFixturesData();
                 } else {
-                    await logToConsoleAndDataset('No H2H, Home, or Away data found for this URL', logDataset, chalk.red);
+                    await logToConsoleAndFile('No H2H, Home, or Away data found for this URL', chalk.red);
                 }
 
                 await processUrl(urlIndex + 1);
             } catch (error) {
-                await logToConsoleAndDataset(`Skipping URL ${urlIndex + 1} due to error: ${error.message}`, logDataset, chalk.red);
+                await logToConsoleAndFile(`Skipping URL ${urlIndex + 1} due to error: ${error.message}`, chalk.red);
                 await saveFixturesData(); // Save current state before skipping
                 await processUrl(urlIndex + 1);
             }
@@ -249,6 +269,12 @@ Apify.main(async () => {
 
         await processUrl(0);
     } catch (error) {
-        await logToConsoleAndDataset(`Error in first API call: ${error.message}`, logDataset, chalk.red);
+        await logToConsoleAndFile(`Error in first API call: ${error.message}`, chalk.red);
     }
+}
+
+// Run the script
+main().catch(err => {
+    console.error(chalk.red(`Main execution failed: ${err.message}`));
+    process.exit(1);
 });
