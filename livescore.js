@@ -4,17 +4,12 @@ const chalk = require('chalk'); // Using v4.1.2
 const figlet = require('figlet');
 const path = require('path');
 
-// Helper to determine if running on Apify
-function isOnApify() {
-    return process.env['APIFY_IS_AT_HOME'] === '1';
-}
-
 // Define storage paths
 const STORAGE_DIR = './storage';
 const KV_STORE_DIR = path.join(STORAGE_DIR, 'key_value_stores', 'default');
 const DATASET_DIR = path.join(STORAGE_DIR, 'datasets', 'default');
 const FIXTURES_FILE = path.join(KV_STORE_DIR, 'Fixtures.json');
-const LOG_FILE = path.join(DATASET_DIR, 'logs.jsonl'); // Using .jsonl for line-separated JSON
+const LOG_FILE = path.join(DATASET_DIR, 'logs.jsonl');
 
 // Ensure directories exist
 async function ensureDirectories() {
@@ -22,11 +17,26 @@ async function ensureDirectories() {
     await fs.mkdir(DATASET_DIR, { recursive: true }).catch(() => {});
 }
 
-// Helper to log to both console and file
-async function logToConsoleAndFile(message, color = chalk.white) {
+// Log buffer to batch writes
+let logBuffer = [];
+
+// Helper to add to log buffer and write in batches
+async function logToConsoleAndFile(message, color = chalk.white, flush = false) {
     console.log(color(message));
     const plainMessage = message.replace(/\x1b\[[0-9;]*m/g, ''); // Strip ANSI codes
-    await fs.appendFile(LOG_FILE, JSON.stringify({ message: plainMessage }) + '\n');
+    logBuffer.push({ message: plainMessage });
+
+    if (flush) {
+        await flushLogBuffer();
+    }
+}
+
+// Flush the log buffer to file
+async function flushLogBuffer() {
+    if (logBuffer.length === 0) return;
+    const logLines = logBuffer.map(entry => JSON.stringify(entry)).join('\n') + '\n';
+    await fs.appendFile(LOG_FILE, logLines);
+    logBuffer = []; // Clear buffer after writing
 }
 
 // Date utility functions
@@ -79,7 +89,7 @@ async function main() {
         const data = response.data;
 
         if (!data?.Stages?.length) {
-            await logToConsoleAndFile('No stages found in initial response', chalk.red);
+            await logToConsoleAndFile('No stages found in initial response', chalk.red, true); // Flush here
             return;
         }
 
@@ -106,11 +116,11 @@ async function main() {
             });
         });
 
-        await logToConsoleAndFile(`Total Matches Found: ${urlCount}`, chalk.magenta);
+        await logToConsoleAndFile(`Total Matches Found: ${urlCount}`, chalk.magenta, true); // Flush here
         fixturesData.total_matches_tomorrow = urlCount;
 
         if (!allUrls.length) {
-            await logToConsoleAndFile('No Matches Found', chalk.red);
+            await logToConsoleAndFile('No Matches Found', chalk.red, true); // Flush here
             return;
         }
 
@@ -126,6 +136,7 @@ async function main() {
         const processUrl = async (urlIndex) => {
             if (urlIndex >= allUrls.length) {
                 await logToConsoleAndFile('All Fixtures processed', chalk.magenta);
+                await flushLogBuffer(); // Flush remaining logs
                 await saveFixturesData(); // Final save
                 return;
             }
@@ -259,17 +270,20 @@ async function main() {
                     await logToConsoleAndFile('No H2H, Home, or Away data found for this URL', chalk.red);
                 }
 
+                // Flush logs after processing each URL
+                await flushLogBuffer();
                 await processUrl(urlIndex + 1);
             } catch (error) {
                 await logToConsoleAndFile(`Skipping URL ${urlIndex + 1} due to error: ${error.message}`, chalk.red);
                 await saveFixturesData(); // Save current state before skipping
+                await flushLogBuffer();
                 await processUrl(urlIndex + 1);
             }
         };
 
         await processUrl(0);
     } catch (error) {
-        await logToConsoleAndFile(`Error in first API call: ${error.message}`, chalk.red);
+        await logToConsoleAndFile(`Error in first API call: ${error.message}`, chalk.red, true); // Flush here
     }
 }
 
