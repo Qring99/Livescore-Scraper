@@ -4,12 +4,17 @@ const chalk = require('chalk'); // Using v4.1.2
 const figlet = require('figlet');
 const path = require('path');
 
+// Helper to determine if running on Apify
+function isOnApify() {
+    return process.env['APIFY_IS_AT_HOME'] === '1';
+}
+
 // Define storage paths
 const STORAGE_DIR = './storage';
 const KV_STORE_DIR = path.join(STORAGE_DIR, 'key_value_stores', 'default');
 const DATASET_DIR = path.join(STORAGE_DIR, 'datasets', 'default');
 const FIXTURES_FILE = path.join(KV_STORE_DIR, 'Fixtures.json');
-const LOG_FILE = path.join(DATASET_DIR, 'logs.jsonl');
+const LOG_FILE = path.join(DATASET_DIR, 'logs.jsonl'); // Using .jsonl for line-separated JSON
 
 // Ensure directories exist
 async function ensureDirectories() {
@@ -17,26 +22,11 @@ async function ensureDirectories() {
     await fs.mkdir(DATASET_DIR, { recursive: true }).catch(() => {});
 }
 
-// Log buffer to batch writes
-let logBuffer = [];
-
-// Helper to add to log buffer and write in batches
-async function logToConsoleAndFile(message, color = chalk.white, flush = false) {
+// Helper to log to both console and file
+async function logToConsoleAndFile(message, color = chalk.white) {
     console.log(color(message));
     const plainMessage = message.replace(/\x1b\[[0-9;]*m/g, ''); // Strip ANSI codes
-    logBuffer.push({ message: plainMessage });
-
-    if (flush) {
-        await flushLogBuffer();
-    }
-}
-
-// Flush the log buffer to file
-async function flushLogBuffer() {
-    if (logBuffer.length === 0) return;
-    const logLines = logBuffer.map(entry => JSON.stringify(entry)).join('\n') + '\n';
-    await fs.appendFile(LOG_FILE, logLines);
-    logBuffer = []; // Clear buffer after writing
+    await fs.appendFile(LOG_FILE, JSON.stringify({ message: plainMessage }) + '\n');
 }
 
 // Date utility functions
@@ -89,7 +79,7 @@ async function main() {
         const data = response.data;
 
         if (!data?.Stages?.length) {
-            await logToConsoleAndFile('No stages found in initial response', chalk.red, true); // Flush here
+            await logToConsoleAndFile('No stages found in initial response', chalk.red);
             return;
         }
 
@@ -116,11 +106,11 @@ async function main() {
             });
         });
 
-        await logToConsoleAndFile(`Total Matches Found: ${urlCount}`, chalk.magenta, true); // Flush here
+        await logToConsoleAndFile(`Total Matches Found: ${urlCount}`, chalk.magenta);
         fixturesData.total_matches_tomorrow = urlCount;
 
         if (!allUrls.length) {
-            await logToConsoleAndFile('No Matches Found', chalk.red, true); // Flush here
+            await logToConsoleAndFile('No Matches Found', chalk.red);
             return;
         }
 
@@ -136,7 +126,6 @@ async function main() {
         const processUrl = async (urlIndex) => {
             if (urlIndex >= allUrls.length) {
                 await logToConsoleAndFile('All Fixtures processed', chalk.magenta);
-                await flushLogBuffer(); // Flush remaining logs
                 await saveFixturesData(); // Final save
                 return;
             }
@@ -195,11 +184,12 @@ async function main() {
                     await logToConsoleAndFile('No H2H data found', chalk.red);
                 }
 
-                // Process home last matches
+                // Process home last matches (console logs disabled)
                 const homeData = h2hData?.pageProps?.initialEventData?.event?.headToHead?.home;
                 if (homeData?.length) {
                     matchData["Home last matches"] = [];
-                    await logToConsoleAndFile('\nHome last matches:', chalk.blue);
+                    // await logToConsoleAndFile('\nHome last matches:', chalk.blue);
+                    await fs.appendFile(LOG_FILE, JSON.stringify({ message: '\nHome last matches:' }) + '\n');
                     let hlmCounter = 1;
                     for (const homeGroup of homeData) {
                         if (homeGroup.events?.length) {
@@ -211,9 +201,12 @@ async function main() {
                                 const awayScore = event.awayScore || "0";
                                 const matchDate = formatMatchDate(event.startDateTimeString);
 
-                                await logToConsoleAndFile(`HLM ${hlmCounter}:`, chalk.white.bold);
-                                await logToConsoleAndFile(`Stage Name: ${stageName}`, chalk.green);
-                                await logToConsoleAndFile(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, chalk.yellow);
+                                // await logToConsoleAndFile(`HLM ${hlmCounter}:`, chalk.white.bold);
+                                // await logToConsoleAndFile(`Stage Name: ${stageName}`, chalk.green);
+                                // await logToConsoleAndFile(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, chalk.yellow);
+                                await fs.appendFile(LOG_FILE, JSON.stringify({ message: `HLM ${hlmCounter}:` }) + '\n');
+                                await fs.appendFile(LOG_FILE, JSON.stringify({ message: `Stage Name: ${stageName}` }) + '\n');
+                                await fs.appendFile(LOG_FILE, JSON.stringify({ message: `Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}` }) + '\n');
 
                                 matchData["Home last matches"].push({
                                     "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
@@ -229,11 +222,12 @@ async function main() {
                     await logToConsoleAndFile('No Home last matches found', chalk.red);
                 }
 
-                // Process away last matches
+                // Process away last matches (console logs disabled)
                 const awayData = h2hData?.pageProps?.initialEventData?.event?.headToHead?.away;
                 if (awayData?.length) {
                     matchData["Away last matches"] = [];
-                    await logToConsoleAndFile('\nAway last matches:', chalk.blue);
+                    // await logToConsoleAndFile('\nAway last matches:', chalk.blue);
+                    await fs.appendFile(LOG_FILE, JSON.stringify({ message: '\nAway last matches:' }) + '\n');
                     let almCounter = 1;
                     for (const awayGroup of awayData) {
                         if (awayGroup.events?.length) {
@@ -245,9 +239,12 @@ async function main() {
                                 const awayScore = event.awayScore || "0";
                                 const matchDate = formatMatchDate(event.startDateTimeString);
 
-                                await logToConsoleAndFile(`ALM ${almCounter}:`, chalk.white.bold);
-                                await logToConsoleAndFile(`Stage Name: ${stageName}`, chalk.green);
-                                await logToConsoleAndFile(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, chalk.yellow);
+                                // await logToConsoleAndFile(`ALM ${almCounter}:`, chalk.white.bold);
+                                // await logToConsoleAndFile(`Stage Name: ${stageName}`, chalk.green);
+                                // await logToConsoleAndFile(`Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`, chalk.yellow);
+                                await fs.appendFile(LOG_FILE, JSON.stringify({ message: `ALM ${almCounter}:` }) + '\n');
+                                await fs.appendFile(LOG_FILE, JSON.stringify({ message: `Stage Name: ${stageName}` }) + '\n');
+                                await fs.appendFile(LOG_FILE, JSON.stringify({ message: `Score: ${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}` }) + '\n');
 
                                 matchData["Away last matches"].push({
                                     "Score": `${homeTeam} ${homeScore} - ${awayScore} ${awayTeam}`,
@@ -270,20 +267,17 @@ async function main() {
                     await logToConsoleAndFile('No H2H, Home, or Away data found for this URL', chalk.red);
                 }
 
-                // Flush logs after processing each URL
-                await flushLogBuffer();
                 await processUrl(urlIndex + 1);
             } catch (error) {
                 await logToConsoleAndFile(`Skipping URL ${urlIndex + 1} due to error: ${error.message}`, chalk.red);
                 await saveFixturesData(); // Save current state before skipping
-                await flushLogBuffer();
                 await processUrl(urlIndex + 1);
             }
         };
 
         await processUrl(0);
     } catch (error) {
-        await logToConsoleAndFile(`Error in first API call: ${error.message}`, chalk.red, true); // Flush here
+        await logToConsoleAndFile(`Error in first API call: ${error.message}`, chalk.red);
     }
 }
 
